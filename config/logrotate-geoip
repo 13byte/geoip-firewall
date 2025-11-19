@@ -1,0 +1,15 @@
+/var/log/iptables/access.log /var/log/iptables/drop.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    copytruncate
+    sharedscripts
+    postrotate
+        # Restart rsyslog to release file handles
+        systemctl restart rsyslog > /dev/null 2>&1 || true
+    endscript
+}
