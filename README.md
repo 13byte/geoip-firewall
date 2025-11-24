@@ -376,12 +376,4 @@ iptables -L INPUT -n --line-numbers | grep 'geoip-firewall-drop' | \
 
 ## 라이선스
 
-MIT License
-
 이 프로젝트는 [DB-IP Lite](https://db-ip.com/db/lite.php) 데이터베이스를 사용합니다 (CC BY 4.0).
-
----
-
-만든 사람: jeosong
-최종 업데이트: 2025-11-19
-Python 3.13+, Debian 12+/Ubuntu 22.04+/Proxmox VE 9+/RHEL 9+/Rocky 9+/AlmaLinux 9+
