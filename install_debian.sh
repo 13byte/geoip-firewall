@@ -158,8 +158,14 @@ setup_python_environment() {
 install_systemd_service() {
     log_info "Systemd 서비스 설치 중..."
 
-    # Boot-time service: Restore firewall rules on every boot
-    cat > /etc/systemd/system/geoip-firewall.service << 'EOF'
+    UV_PATH=$(which uv)
+    if [ -z "$UV_PATH" ]; then
+        log_error "uv 실행 파일을 찾을 수 없습니다"
+        exit 1
+    fi
+    log_info "uv 경로: $UV_PATH"
+
+    cat > /etc/systemd/system/geoip-firewall.service << EOF
 [Unit]
 Description=Linux GeoIP Firewall (Boot-time Rule Restoration)
 After=network-online.target
@@ -173,7 +179,7 @@ Group=root
 WorkingDirectory=/usr/local/geoip-firewall
 RemainAfterExit=yes
 
-ExecStart=/root/.cargo/bin/uv run geoip-update
+ExecStart=$UV_PATH run geoip-update
 
 StandardOutput=journal
 StandardError=journal
@@ -190,7 +196,7 @@ TimeoutSec=600
 WantedBy=multi-user.target
 EOF
 
-    cat > /etc/systemd/system/geoip-firewall-update.service << 'EOF'
+    cat > /etc/systemd/system/geoip-firewall-update.service << EOF
 [Unit]
 Description=Linux GeoIP Firewall Update Service (Native ipset)
 After=network-online.target
@@ -202,7 +208,7 @@ User=root
 Group=root
 WorkingDirectory=/usr/local/geoip-firewall
 
-ExecStart=/root/.cargo/bin/uv run geoip-update
+ExecStart=$UV_PATH run geoip-update
 
 StandardOutput=journal
 StandardError=journal
