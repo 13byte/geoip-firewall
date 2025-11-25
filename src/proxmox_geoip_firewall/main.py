@@ -20,7 +20,21 @@ CONFIG = {
     "LAST_CHECK_FILE": "/usr/local/geoip-firewall/last-check.txt",
     "LOG_FILE": "/var/log/geoip-firewall-update.log",
     "ALLOWED_COUNTRIES": ["KR"],
+    # 사설 IP 대역 (Docker, Kubernetes, 내부 네트워크 등)
+    "PRIVATE_NETWORKS_V4": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",  # Link-local
+    ],
+    "PRIVATE_NETWORKS_V6": [
+        "fc00::/7",        # Unique local address
+        "fe80::/10",       # Link-local
+    ],
 }
+
+# 전역 변수: 모든 국가 코드 목록 (apply_native_ipset에서 설정됨)
+ALL_COUNTRIES: list[str] = []
 
 logging.basicConfig(
     level=logging.INFO,
@@ -190,13 +204,13 @@ def parse_mmdb_to_country_ipranges() -> dict[str, list[str]]:
 
 
 def cleanup_existing_ipsets() -> bool:
-    """Remove existing geoip-firewall rules and ipsets"""
+    """Remove existing geoip-firewall rules and ipsets (only geoip-firewall rules)"""
     logger.info("기존 ipset 및 iptables 규칙 정리 중...")
 
     try:
         # Remove DROP rules first to prevent SSH disconnection
         for iptables_cmd in ["/usr/sbin/iptables", "/usr/sbin/ip6tables"]:
-            # Remove DROP rules
+            # Remove DROP rules first (geoip-firewall-drop)
             while True:
                 result = subprocess.run(
                     [iptables_cmd, "-L", "INPUT", "-n", "--line-numbers"],
@@ -207,17 +221,18 @@ def cleanup_existing_ipsets() -> bool:
                 for line in result.stdout.split("\n"):
                     if "geoip-firewall-drop" in line:
                         line_num = line.split()[0]
-                        subprocess.run(
-                            [iptables_cmd, "-D", "INPUT", line_num],
-                            capture_output=True,
-                        )
-                        logger.info(f"DROP 규칙 제거 완료 ({iptables_cmd})")
-                        found = True
-                        break
+                        if line_num.isdigit():
+                            subprocess.run(
+                                [iptables_cmd, "-D", "INPUT", line_num],
+                                capture_output=True,
+                            )
+                            logger.info(f"DROP 규칙 제거 완료 ({iptables_cmd})")
+                            found = True
+                            break
                 if not found:
                     break
 
-            # Remove other geoip-firewall rules
+            # Remove all other geoip-firewall rules (including localhost, private, stateful)
             while True:
                 result = subprocess.run(
                     [iptables_cmd, "-L", "INPUT", "-n", "--line-numbers"],
@@ -226,53 +241,35 @@ def cleanup_existing_ipsets() -> bool:
                 )
                 found = False
                 for line in result.stdout.split("\n"):
+                    # geoip-firewall 주석이 있는 규칙만 삭제
                     if "geoip-firewall" in line:
                         line_num = line.split()[0]
-                        subprocess.run(
-                            [iptables_cmd, "-D", "INPUT", line_num],
-                            capture_output=True,
-                        )
-                        found = True
-                        break
+                        if line_num.isdigit():
+                            subprocess.run(
+                                [iptables_cmd, "-D", "INPUT", line_num],
+                                capture_output=True,
+                            )
+                            found = True
+                            break
                 if not found:
                     break
 
-            # Remove localhost rules
-            while True:
-                result = subprocess.run(
-                    [iptables_cmd, "-L", "INPUT", "-n", "--line-numbers"],
-                    capture_output=True,
-                    text=True,
-                )
-                found = False
-                for line in result.stdout.split("\n"):
-                    if " lo " in line and "ACCEPT" in line:
-                        line_num = line.split()[0]
-                        subprocess.run(
-                            [iptables_cmd, "-D", "INPUT", line_num],
-                            capture_output=True,
-                        )
-                        logger.info(f"Localhost 규칙 제거 완료 ({iptables_cmd})")
-                        found = True
-                        break
-                if not found:
-                    break
-
+        # Remove geoip-firewall ipsets
         result = subprocess.run(
             ["/usr/sbin/ipset", "list", "-n"],
             capture_output=True,
             text=True,
         )
-        country_sets = [s for s in result.stdout.split("\n") if s.startswith("country-")]
+        geoip_sets = [s for s in result.stdout.split("\n") if s.startswith("country-") or s.startswith("geoip-")]
 
-        for set_name in country_sets:
+        for set_name in geoip_sets:
             subprocess.run(
                 ["/usr/sbin/ipset", "destroy", set_name],
                 capture_output=True,
             )
 
-        if country_sets:
-            logger.info(f"기존 ipset {len(country_sets)}개 삭제 완료")
+        if geoip_sets:
+            logger.info(f"기존 ipset {len(geoip_sets)}개 삭제 완료")
 
     except Exception as e:
         logger.warning(f"정리 중 오류 (무시 가능): {e}")
@@ -281,50 +278,8 @@ def cleanup_existing_ipsets() -> bool:
 
 
 def apply_native_ipset(country_ip_ranges: dict[str, list[str]]) -> bool:
+    """Create ipset for each country (cleanup is done separately by cleanup_existing_ipsets)"""
     logger.info(f"Native ipset 생성 중: {len(country_ip_ranges)}개 국가")
-
-    try:
-        deleted_rules = 0
-        deleted_ipsets = 0
-
-        for iptables_cmd in ["/usr/sbin/iptables", "/usr/sbin/ip6tables"]:
-            result = subprocess.run(
-                [iptables_cmd, "-L", "INPUT", "-n", "--line-numbers"],
-                capture_output=True,
-                text=True,
-            )
-            lines_to_delete = []
-            for line in result.stdout.split("\n"):
-                if "geoip-firewall" in line:
-                    line_num = line.split()[0]
-                    if line_num.isdigit():
-                        lines_to_delete.append(int(line_num))
-
-            for line_num in sorted(lines_to_delete, reverse=True):
-                subprocess.run(
-                    [iptables_cmd, "-D", "INPUT", str(line_num)],
-                    capture_output=True,
-                )
-                deleted_rules += 1
-
-        result = subprocess.run(
-            ["/usr/sbin/ipset", "list", "-n"],
-            capture_output=True,
-            text=True,
-        )
-        for set_name in result.stdout.split("\n"):
-            if set_name.startswith("country-"):
-                subprocess.run(
-                    ["/usr/sbin/ipset", "destroy", set_name],
-                    capture_output=True,
-                )
-                deleted_ipsets += 1
-
-        if deleted_rules > 0 or deleted_ipsets > 0:
-            logger.info(f"기존 설정 정리 완료: iptables 규칙 {deleted_rules}개, ipset {deleted_ipsets}개")
-    except Exception as e:
-        logger.error(f"정리 중 오류: {e}")
-        return False
 
     total_countries = len(country_ip_ranges)
     processed = 0
@@ -372,8 +327,9 @@ def apply_native_ipset(country_ip_ranges: dict[str, list[str]]) -> bool:
                     stderr=subprocess.PIPE,
                 )
                 commands = "\n".join([f"add {set_name_v4} {ip}" for ip in ipv4_ranges]) + "\n"
-                process.communicate(input=commands.encode())
+                stdout, stderr = process.communicate(input=commands.encode())
                 if process.returncode not in (None, 0):
+                    logger.error(f"ipset restore 실패 ({set_name_v4}): {stderr.decode()}")
                     raise subprocess.CalledProcessError(process.returncode, "ipset restore")
 
             if ipv6_ranges:
@@ -398,8 +354,9 @@ def apply_native_ipset(country_ip_ranges: dict[str, list[str]]) -> bool:
                     stderr=subprocess.PIPE,
                 )
                 commands = "\n".join([f"add {set_name_v6} {ip}" for ip in ipv6_ranges]) + "\n"
-                process.communicate(input=commands.encode())
+                stdout, stderr = process.communicate(input=commands.encode())
                 if process.returncode not in (None, 0):
+                    logger.error(f"ipset restore 실패 ({set_name_v6}): {stderr.decode()}")
                     raise subprocess.CalledProcessError(process.returncode, "ipset restore")
 
         except subprocess.CalledProcessError as e:
@@ -507,6 +464,55 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
         logger.info("Localhost 트래픽 허용 완료")
     except subprocess.CalledProcessError as e:
         logger.error(f"Localhost 규칙 추가 실패: {e}")
+        return False
+
+    # 사설 IP 대역 허용 (Docker, Kubernetes, 내부 네트워크 등)
+    try:
+        logger.info("사설 IP 대역 허용 규칙 추가 중...")
+
+        for network in CONFIG["PRIVATE_NETWORKS_V4"]:
+            subprocess.run(
+                [
+                    "/usr/sbin/iptables",
+                    "-I",
+                    "INPUT",
+                    "3",
+                    "-s",
+                    network,
+                    "-j",
+                    "ACCEPT",
+                    "-m",
+                    "comment",
+                    "--comment",
+                    "geoip-firewall-private",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+        for network in CONFIG["PRIVATE_NETWORKS_V6"]:
+            subprocess.run(
+                [
+                    "/usr/sbin/ip6tables",
+                    "-I",
+                    "INPUT",
+                    "3",
+                    "-s",
+                    network,
+                    "-j",
+                    "ACCEPT",
+                    "-m",
+                    "comment",
+                    "--comment",
+                    "geoip-firewall-private",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+        logger.info(f"사설 IP 대역 허용 완료: IPv4 {len(CONFIG['PRIVATE_NETWORKS_V4'])}개, IPv6 {len(CONFIG['PRIVATE_NETWORKS_V6'])}개")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"사설 IP 규칙 추가 실패: {e}")
         return False
 
     global ALL_COUNTRIES
@@ -874,6 +880,9 @@ def smart_update() -> bool:
         if mmdb_exists:
             logger.info("재부팅 감지 - 기존 MMDB로 방화벽 즉시 복원")
             logger.info(f"기존 파일 사용: {CONFIG['MMDB_FILE']}")
+            # 재부팅 시에도 해시 파일 갱신 (다음 업데이트 체크를 위해)
+            if not Path(CONFIG["HASH_FILE"]).exists():
+                check_file_hash_changed(CONFIG["MMDB_FILE"])
         else:
             logger.info("첫 설치 - MMDB 파일 다운로드 필요")
             Path(CONFIG["LAST_CHECK_FILE"]).unlink(missing_ok=True)
@@ -909,6 +918,9 @@ def smart_update() -> bool:
     if not country_ip_ranges:
         logger.error("파싱 실패")
         return False
+
+    logger.info("기존 규칙 정리...")
+    cleanup_existing_ipsets()
 
     logger.info("Native ipset 적용...")
     if not apply_native_ipset(country_ip_ranges):

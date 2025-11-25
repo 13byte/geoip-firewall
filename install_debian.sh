@@ -116,12 +116,19 @@ install_uv() {
 
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
-    export PATH="$HOME/.cargo/bin:$PATH"
+    # uv는 $HOME/.local/bin에 설치됨
+    export PATH="$HOME/.local/bin:$PATH"
+
+    # 현재 쉘에서 바로 사용할 수 있도록 env 파일 source
+    if [ -f "$HOME/.local/bin/env" ]; then
+        source "$HOME/.local/bin/env"
+    fi
 
     if command -v uv &> /dev/null; then
         log_info "uv 설치 완료: $(uv --version)"
     else
         log_error "uv 설치 실패"
+        log_error "수동으로 실행 후 재시도: source \$HOME/.local/bin/env"
         exit 1
     fi
 }
@@ -158,9 +165,18 @@ setup_python_environment() {
 install_systemd_service() {
     log_info "Systemd 서비스 설치 중..."
 
-    UV_PATH=$(which uv)
+    # uv 경로 탐색 (여러 가능한 위치 확인)
+    UV_PATH=""
+    for path in "/root/.local/bin/uv" "$HOME/.local/bin/uv" "$(which uv 2>/dev/null)"; do
+        if [ -x "$path" ]; then
+            UV_PATH="$path"
+            break
+        fi
+    done
+
     if [ -z "$UV_PATH" ]; then
         log_error "uv 실행 파일을 찾을 수 없습니다"
+        log_error "확인할 경로: /root/.local/bin/uv, $HOME/.local/bin/uv"
         exit 1
     fi
     log_info "uv 경로: $UV_PATH"
@@ -179,6 +195,9 @@ Group=root
 WorkingDirectory=/usr/local/geoip-firewall
 RemainAfterExit=yes
 
+# PATH 환경변수 명시적 설정
+Environment="PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 ExecStart=$UV_PATH run geoip-update
 
 StandardOutput=journal
@@ -188,7 +207,7 @@ SyslogIdentifier=geoip-firewall-boot
 PrivateTmp=true
 NoNewPrivileges=false
 ProtectSystem=false
-ProtectHome=true
+ProtectHome=false
 
 TimeoutSec=600
 
@@ -208,6 +227,9 @@ User=root
 Group=root
 WorkingDirectory=/usr/local/geoip-firewall
 
+# PATH 환경변수 명시적 설정
+Environment="PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 ExecStart=$UV_PATH run geoip-update
 
 StandardOutput=journal
@@ -217,7 +239,7 @@ SyslogIdentifier=geoip-firewall-update
 PrivateTmp=true
 NoNewPrivileges=false
 ProtectSystem=false
-ProtectHome=true
+ProtectHome=false
 
 TimeoutSec=600
 
