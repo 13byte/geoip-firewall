@@ -131,7 +131,7 @@ def download_dbip_database(url: str) -> bool:
                 shutil.copyfileobj(f_in, f_out)
 
         logger.info(f"압축 해제 완료: {CONFIG['MMDB_FILE']}")
-        os.remove(gz_file)
+        Path(gz_file).unlink(missing_ok=True)  # 파일 없어도 에러 없이 처리
 
         return True
     except Exception as e:
