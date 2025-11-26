@@ -376,9 +376,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
         subprocess.run(
             [
                 "/usr/sbin/iptables",
-                "-I",
+                "-A",
                 "INPUT",
-                "1",
                 "-m",
                 "conntrack",
                 "--ctstate",
@@ -397,9 +396,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
         subprocess.run(
             [
                 "/usr/sbin/ip6tables",
-                "-I",
+                "-A",
                 "INPUT",
-                "1",
                 "-m",
                 "conntrack",
                 "--ctstate",
@@ -426,9 +424,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
         subprocess.run(
             [
                 "/usr/sbin/iptables",
-                "-I",
+                "-A",
                 "INPUT",
-                "2",
                 "-i",
                 "lo",
                 "-j",
@@ -445,9 +442,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
         subprocess.run(
             [
                 "/usr/sbin/ip6tables",
-                "-I",
+                "-A",
                 "INPUT",
-                "2",
                 "-i",
                 "lo",
                 "-j",
@@ -474,9 +470,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
             subprocess.run(
                 [
                     "/usr/sbin/iptables",
-                    "-I",
+                    "-A",
                     "INPUT",
-                    "3",
                     "-s",
                     network,
                     "-j",
@@ -494,9 +489,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
             subprocess.run(
                 [
                     "/usr/sbin/ip6tables",
-                    "-I",
+                    "-A",
                     "INPUT",
-                    "3",
                     "-s",
                     network,
                     "-j",
@@ -529,9 +523,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
                 subprocess.run(
                     [
                         "/usr/sbin/iptables",
-                        "-I",
+                        "-A",
                         "INPUT",
-                        "1",
                         "-m",
                         "set",
                         "--match-set",
@@ -559,9 +552,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
                 subprocess.run(
                     [
                         "/usr/sbin/iptables",
-                        "-I",
+                        "-A",
                         "INPUT",
-                        "2",
                         "-m",
                         "set",
                         "--match-set",
@@ -588,9 +580,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
                 subprocess.run(
                     [
                         "/usr/sbin/ip6tables",
-                        "-I",
+                        "-A",
                         "INPUT",
-                        "1",
                         "-m",
                         "set",
                         "--match-set",
@@ -618,9 +609,8 @@ def setup_firewall_rules(allowed_countries: list[str]) -> bool:
                 subprocess.run(
                     [
                         "/usr/sbin/ip6tables",
-                        "-I",
+                        "-A",
                         "INPUT",
-                        "2",
                         "-m",
                         "set",
                         "--match-set",
